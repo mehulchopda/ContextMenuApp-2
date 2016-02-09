@@ -11,9 +11,9 @@
 #define GHShowAnimationID @"GHContextMenuViewRriseAnimationID"
 #define GHDismissAnimationID @"GHContextMenuViewDismissAnimationID"
 
-NSInteger const GHMainItemSize = 44;
-NSInteger const GHMenuItemSize = 40;
-NSInteger const GHBorderWidth  = 5;
+NSInteger const GHMainItemSize = 70;//44
+NSInteger const GHMenuItemSize = 70;//40
+NSInteger const GHBorderWidth  = 8;//5
 
 CGFloat const   GHAnimationDuration = 0.2;
 CGFloat const   GHAnimationDelay = GHAnimationDuration/5;
@@ -80,7 +80,7 @@ CGFloat const   GHAnimationDelay = GHAnimationDuration/5;
         _menuItems = [NSMutableArray array];
         _itemLocations = [NSMutableArray array];
         _arcAngle = M_PI_2;
-        _radius = 90;
+        _radius = 130;
         
         self.itemBGColor = [UIColor grayColor].CGColor;
         self.itemBGHighlightedColor = [UIColor redColor].CGColor;
@@ -147,7 +147,9 @@ CGFloat const   GHAnimationDelay = GHAnimationDuration/5;
 
 - (void) longPressDetected:(UIGestureRecognizer*) gestureRecognizer
 {
+    
     if (gestureRecognizer.state == UIGestureRecognizerStateBegan) {
+       
         self.prevIndex = -1;
         
         CGPoint pointInView = [gestureRecognizer locationInView:gestureRecognizer.view];
@@ -177,6 +179,8 @@ CGFloat const   GHAnimationDelay = GHAnimationDuration/5;
         [self dismissWithSelectedIndexForMenuAtPoint:menuAtPoint];
     }
 }
+
+
 
 - (void) showMenu
 {

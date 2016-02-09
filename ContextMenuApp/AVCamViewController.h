@@ -1,7 +1,7 @@
 /*
-     File: AVCamViewController.h
+ File: AVCamViewController.h
  Abstract: View controller for camera interface.
-  Version: 3.1
+ Version: 3.1
  
  Disclaimer: IMPORTANT:  This Apple software is supplied to you by Apple
  Inc. ("Apple") in consideration of your agreement to the following
@@ -52,23 +52,22 @@
 @protocol AVCamViewControllerDelegate <NSObject>
 - (void)addItemViewController:(NSString *)item;
 @end
-
-
-
 @interface AVCamViewController : UIViewController{
-
-    __weak IBOutlet AVCamPreviewView *previewView;
-
-    IBOutlet UILabel *myCounterLabel;
- 
     
+    __weak IBOutlet AVCamPreviewView *previewView;
+    IBOutlet UILabel *myCounterLabel;
     
     IBOutlet UILabel *modeLabel;
+    
+    IBOutlet UILabel *stopWatch;
 }
 @property (nonatomic, retain) UILabel *myCounterLabel;
 @property (nonatomic, retain) UILabel *modeLabel;
 @property (nonatomic, retain) NSString *dataCam;
- @property (nonatomic, retain) NSString *modeCam;
+@property (nonatomic, retain) NSString *modeCam;
+@property (strong, nonatomic) NSTimer *stopWatchTimer; // Store the timer that fires after a certain time
+@property (strong, nonatomic) NSDate *startDate; // Stores the date of the click on the start button *
+
 //@property (nonatomic, weak) id <AVCamViewControllerDelegate> delegate;
 @property(nonatomic,assign)id delegate;
 

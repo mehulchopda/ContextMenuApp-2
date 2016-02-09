@@ -48,20 +48,16 @@
 #import "AVCamViewController.h"
 #import <AVFoundation/AVFoundation.h>
 #import <AssetsLibrary/AssetsLibrary.h>
-#import "DollarDefaultGestures.h"
-#import "DollarPGestureRecognizer.h"
-#import "DollarPoint.h"
-#import "DollarResult.h"
-#import "DollarPointCloud.h"
+
 #import <AVFoundation/AVFoundation.h>
 #import "AVCamPreviewView.h"
 #import "DBCameraGridView.h"
-#import "ViewController.h"
+#import "GHContextMenuView.h"
 static void * CapturingStillImageContext = &CapturingStillImageContext;
 static void * RecordingContext = &RecordingContext;
 static void * SessionRunningAndDeviceAuthorizedContext = &SessionRunningAndDeviceAuthorizedContext;
 
-@interface AVCamViewController () <AVCaptureFileOutputRecordingDelegate>
+@interface AVCamViewController () <AVCaptureFileOutputRecordingDelegate,GHContextOverlayViewDataSource, GHContextOverlayViewDelegate>
 
 // For use in the storyboards.
 @property (nonatomic, weak) IBOutlet AVCamPreviewView *previewView;
@@ -93,8 +89,14 @@ NSTimer *Timer;
 @import CoreLocation;
 @import Photos;
 @implementation AVCamViewController
+@synthesize modeLabel;
+@synthesize previewView;
+@synthesize myCounterLabel;
 @synthesize dataCam;
 NSString *grid=@"";
+int temp=0;
+int flash_temp=0;
+int timen=0;
 //@synthesize myCounterLabel;
 
 
@@ -112,11 +114,15 @@ NSString *grid=@"";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-   
+    modeCam=@"Camera";
+    [self.view bringSubviewToFront:self.myCounterLabel];
+    [self.navigationItem setHidesBackButton:YES];
+    GHContextMenuView* overlay = [[GHContextMenuView alloc] init];
+    overlay.dataSource = self;
+    overlay.delegate = self;
     
- [self.navigationItem setHidesBackButton:YES];
-    
-    
+    UILongPressGestureRecognizer* _longPressRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:overlay action:@selector(longPressDetected:)];
+    [[self view] addGestureRecognizer:_longPressRecognizer];
     // Create the AVCaptureSession
     AVCaptureSession *session = [[AVCaptureSession alloc] init];
     [self setSession:session];
@@ -132,41 +138,22 @@ NSString *grid=@"";
     
     [self.myCounterLabel setHidden:YES];
     [self.modeLabel setHidden:NO];
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     // In general it is not safe to mutate an AVCaptureSession or any of its inputs, outputs, or connections from multiple threads at the same time.
     // Why not do all of this on the main queue?
     // -[AVCaptureSession startRunning] is a blocking call which can take a long time. We dispatch session setup to the sessionQueue so that the main queue isn't blocked (which keeps the UI responsive).
     
     
     // Added Swiipe to draw the Gesture
-  
-    
-    
-    
-    UISwipeGestureRecognizer *swipeRight=[[UISwipeGestureRecognizer alloc]initWithTarget:self action:@selector(didSwipe:)];
-    [[self view] addGestureRecognizer:swipeRight];
     
     UISwipeGestureRecognizer *swipeLeft=[[UISwipeGestureRecognizer alloc]initWithTarget:self action:@selector(didSwipe:)];
     swipeLeft.direction=UISwipeGestureRecognizerDirectionLeft;
     [[self view] addGestureRecognizer:swipeLeft];
+    swipeLeft.numberOfTouchesRequired=2;
     
     
     UITapGestureRecognizer *tapGesture=[[UITapGestureRecognizer alloc]initWithTarget:self action:@selector(didTapped:) ];
     tapGesture.numberOfTapsRequired=1;
     [[self view] addGestureRecognizer:tapGesture];
-    
-    
-    
     
     ((AVPlayerLayer *)[[self previewView ] layer]).videoGravity = AVLayerVideoGravityResizeAspectFill;
     ((AVPlayerLayer *)[[self previewView ] layer]).bounds = ((AVPlayerLayer *)[[self previewView ] layer]).bounds;
@@ -234,10 +221,6 @@ NSString *grid=@"";
         }
     });
     
-    
-    
-    
-    
 }
 -(void)didTapped:(UITapGestureRecognizer *)sender{
     
@@ -256,60 +239,82 @@ NSString *grid=@"";
     }
 }
 -(void)timer{
-    if ([dataCam isEqualToString:@"Timer"]){
-        static int count = 5;
-        count--;
-        
-        NSString *s = [[NSString alloc]
-                       initWithFormat:@"%d", count];
-        
-        [self.myCounterLabel setHidden:NO];
-        self.myCounterLabel.text =   s;
+    timen=6;
+    Timer = [NSTimer scheduledTimerWithTimeInterval:1.0  target:self selector:@selector(updateCounter:) userInfo:nil repeats:YES];
+}
+
+- (void)updateCounter:(NSTimer *)theTimer {
+    timen--;
+    self.myCounterLabel.hidden=NO;
+    self.myCounterLabel.text = [NSString stringWithFormat:@"%d", timen];
+    
+    if (timen == 0) {
+        [theTimer invalidate];
+        [self snapStillImage:self];
+        NSLog(@"Photo was Taken");
+        [self.myCounterLabel setFont:[UIFont systemFontOfSize:20]];
+        self.myCounterLabel.hidden=YES;
     }
     
-    Timer = [NSTimer scheduledTimerWithTimeInterval:5.0  target:self selector:@selector(updateCounter:) userInfo:nil repeats:NO];
-    [[NSRunLoop mainRunLoop] addTimer: Timer forMode: NSDefaultRunLoopMode];
-    
-    
 }
-- (void)updateCounter:(NSTimer *)theTimer {
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
     
+    if([self.stopWatchTimer isValid])
+    {
+        [self.stopWatchTimer invalidate];
+        self.stopWatchTimer = nil;
+    }
     
-    [self snapStillImage:self];
+    if(self.stopWatchTimer==nil)
+    {
+        self.startDate = [NSDate date];
+        
+        // Create the stop watch timer that fires every 10 ms
+        self.stopWatchTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/10.0
+                                                               target:self
+                                                             selector:@selector(updateTimer)
+                                                             userInfo:nil
+                                                              repeats:YES];
+    }
 }
 
+- (void)updateTimer
+{
+    // Create date from the elapsed time
+    NSDate *currentDate = [NSDate date];
+    NSTimeInterval timeInterval = [currentDate timeIntervalSinceDate:self.startDate];
+    NSDate *timerDate = [NSDate dateWithTimeIntervalSince1970:timeInterval];
+    
+    // Create a date formatter
+    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+    [dateFormatter setDateFormat:@"HH:mm:ss.SSS"];
+    [dateFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0.0]];
+    
+    // Format the elapsed time and set it to the label
+    NSString *timeString = [dateFormatter stringFromDate:timerDate];
+    // UILabel *result2 = (UILabel *)[view1 viewWithTag:13];
+    stopWatch.text = timeString;
+    
+}
+-(void)stopTimer
+{
+    if([self.stopWatchTimer isValid])
+    {
+        NSLog(@"Come for the Invalidate");
+        [self.stopWatchTimer invalidate];
+        self.stopWatchTimer = nil;
+        [self updateTimer];
+    }
+}
 -(void)didSwipe:(UISwipeGestureRecognizer *)sender{
-    
-    
-    UISwipeGestureRecognizerDirection direction=sender.direction;
-      switch (direction) {
-        case UISwipeGestureRecognizerDirectionRight:
-            NSLog(@"Swipe Right Detetcted");
-              
-          // [self performSegueWithIdentifier:@"toViewController" sender:sender];
-             // NSString *itemToPassBack = @"Grid";
-            [self.delegate addItemViewController:@"Grid"];
-               [self.navigationController popViewControllerAnimated:YES];
-            break;
-        case UISwipeGestureRecognizerDirectionLeft:
-            NSLog(@"Swipe Left Detetcted");
-            [self performSegueWithIdentifier:@"topictureGallery" sender:sender];
-            break;
-        default:
-            break;
-
-      }
+    [self performSegueWithIdentifier:@"topictureGallery" sender:sender];
 }
-
-
 
 - (void)viewWillAppear:(BOOL)animated
 {
-   self.navigationController.navigationBar.hidden=YES;
-//    NSLog(@"Cuurent data=%@",dataCam);
-//    NSLog(@"Cuurent mode=%@",modeCam);
-    
-    
+    self.navigationController.navigationBar.hidden=YES;
+    //    NSLog(@"Cuurent data=%@",dataCam);
+    //    NSLog(@"Cuurent mode=%@",modeCam);
     dispatch_async([self sessionQueue], ^{
         [self addObserver:self forKeyPath:@"sessionRunningAndDeviceAuthorized" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:SessionRunningAndDeviceAuthorizedContext];
         [self addObserver:self forKeyPath:@"stillImageOutput.capturingStillImage" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:CapturingStillImageContext];
@@ -328,15 +333,11 @@ NSString *grid=@"";
         [[self session] startRunning];
     });
     
-    
-    
-    
     //Open Settings
     
-    
     if ([dataCam isEqualToString:@"Settings"]  ) {
-         [self openSettings];
         
+        [self openSettings];
         
     }
     //Show Gridlines
@@ -344,72 +345,12 @@ NSString *grid=@"";
         
         grid=dataCam;
         
-        
-        
     }
-    
-    
     if ([dataCam isEqualToString:@"RemoveGrid"])
     {
         
-        
-        
         grid=@"";
         [self.view removeFromSuperview];
-        //[[SUPGridWindow sharedGridWindow] toggleHidden];
-        
-        //        [[SUPGridWindow sharedGridWindow] removeFromSuperview];
-        
-        
-    }
-    if ([grid isEqualToString:@"Grid"]&&[dataCam isEqualToString:@"Settings"])
-    {
-        
-        
-       
-        grid=@"";
-        [self.view removeFromSuperview];
-        //[[SUPGridWindow sharedGridWindow] toggleHidden];
-        
-        //        [[SUPGridWindow sharedGridWindow] removeFromSuperview];
-        
-        
-    }
-    
-    NSLog(@" Value=%@",grid);
-    
-    if ([grid isEqualToString:@"Grid"]  ) {
-        
-        //[self.delegate setGrid:grid];
-//        ViewController *vs=[[ViewController alloc]init];
-//        vs.setGrid=grid;
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"DataSended"
-                                                            object:grid];
-        
-        [self DrawGridLines];
-        
-        
-        
-    }
-    
-    
-    //Take a Photo with a Timer
-    
-    if ([dataCam isEqualToString:@"Timer"] && [modeCam isEqualToString:@"Camera"]) {
-        
-        //
-        [self.myCounterLabel setHidden:NO];
-        self.myCounterLabel.text=@"Timer Enabled";
-        int duration = 1; // duration in seconds
-        
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [self.myCounterLabel setHidden:YES];
-        });
-        
-        
-        [self timer];
-        
-        
         
     }
     
@@ -418,20 +359,7 @@ NSString *grid=@"";
     if ([modeCam isEqualToString:@"Video"])
     {
         
-        
-        ([grid isEqualToString:@"Grid"]);
-        {
-            
-            
-            // [self openSettings];
-            
-            [self.view removeFromSuperview];
-            //[[SUPGridWindow sharedGridWindow] toggleHidden];
-            
-            //        [[SUPGridWindow sharedGridWindow] removeFromSuperview];
-            
-            
-        }
+        self.modeLabel.text=@"Video";
         [self.myCounterLabel setHidden:NO];
         self.myCounterLabel.text=@"Tap to start/stop movie Recording";
         int duration = 3; // duration in seconds
@@ -439,12 +367,14 @@ NSString *grid=@"";
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             [self.myCounterLabel setHidden:YES];
         });
-
-        self.modeLabel.text=@"Video";
         
-        
-        
-        
+        ([grid isEqualToString:@"Grid"]);
+        {
+            
+            // [self openSettings];
+            [self.view removeFromSuperview];
+            
+        }
         
     }
     // Show Dialog stating Camera Mode in On
@@ -452,63 +382,29 @@ NSString *grid=@"";
     if ([modeCam isEqualToString:@"Camera"])
     {
         
-        
-        
         self.modeLabel.text=@"Camera";
+        [self.myCounterLabel setHidden:NO];
+        self.myCounterLabel.text=@"Tap to take a snap";
+        int duration = 3; // duration in seconds
         
-        
-        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            [self.myCounterLabel setHidden:YES];
+        });
         
     }
     if ([dataCam isEqualToString:@"Square"])
-            {
+    {
         
         
-                if ([grid isEqualToString:@"Grid"]); {
-                     [self.view removeFromSuperview];
-                   
-                }
-                CGAffineTransform translate = CGAffineTransformMakeTranslation(0.0, 150.0);
-                self.previewView.transform = translate;
-//                
-//                CGSize screenBounds = [UIScreen mainScreen].bounds.size;
-//                CGFloat previewHeight = screenBounds.width * 4.f / 3.f;;
-//                CGFloat previewScale = screenBounds.height / previewHeight;
-//                CGAffineTransform transform = CGAffineTransformMakeTranslation(0,
-//                                                                               (CGRectGetHeight([UIScreen mainScreen].bounds) - previewScale) / 2.0f);
-//                transform = CGAffineTransformScale(transform, previewScale, previewScale);
-//               self.view.transform = transform;
-//                CGFloat diameter = MIN(self.view.frame.size.width, self.view.frame.size.height) * 0.8;
-//                self.previewView.frame = CGRectMake((self.view.frame.size.width - diameter) / 2,
-//                                         (self.view.frame.size.height - diameter) / 2,
-//                                         diameter, diameter);
-//                
-                
-               // _previewView.contentMode = UIViewContentModeScaleAspectFill;
-               // [_previewView addSubview:_previewView];
-
+        if ([grid isEqualToString:@"Grid"]); {
+            [self.view removeFromSuperview];
             
-//        UIView *controllerView = self.view;
-//        
-//        controllerView.alpha = 1.0;
-//        controllerView.transform = CGAffineTransformMakeScale(0.5, 0.5);
-//        
-//        [[[[UIApplication sharedApplication] delegate] window] addSubview:self.view];
-//        
-//        [UIView animateWithDuration:0.3
-//                              delay:0.0
-//                            options:UIViewAnimationOptionCurveLinear
-//                         animations:^{
-//                             controllerView.alpha = 1.0;
-//                         }
-//                         completion:nil
-//         ];
-//
- 
+        }
+        CGAffineTransform translate = CGAffineTransformMakeTranslation(0.0, self.view.frame.size.height/2);
+        self.previewView.transform = translate;
         
-
     }
-   
+    
     if ([dataCam isEqualToString:@"FrontCamera"] )
     {
         
@@ -538,12 +434,7 @@ NSString *grid=@"";
         
     }
     
-    
-    
-    
 }
-
-
 - (void) addSubviewWithZoomInAnimation:(UIView*)view duration:(float)secs option:(UIViewAnimationOptions)option {
     view.transform = CGAffineTransformIdentity;
     CGAffineTransform trans = CGAffineTransformScale(view.transform, 0.05, 0.05);
@@ -561,28 +452,25 @@ NSString *grid=@"";
 }
 
 -(void)DrawGridLines{
-    
-    
-   // DBCameraGridView *cameraGridView=[[DBCameraGridView alloc]init];
     DBCameraGridView  *cameraGridView = [[DBCameraGridView alloc] initWithFrame:self.view.frame];
-   // [cameraGridView setAutoresizingMask:UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight];
-    [cameraGridView setNumberOfColumns:2];
-    [cameraGridView setNumberOfRows:2];
-    [cameraGridView setAlpha:1];
-    //[self.previewView setMaskView:cameraGridView];
-    [self.view addSubview:cameraGridView];
-  
-    
-//        SUPGridWindow *grid=[SUPGridWindow sharedGridWindow];
-//        [grid setGridColor:[UIColor blackColor]];
-//        [grid setMajorGridSize:CGSizeMake(10, 10)];
-//        [grid setMinorGridSize:CGSizeMake(40, 40)];
-//    
-//    // add this new view to your main view
-//        [self.previewView addSubview:grid];
-    
-    
-    
+    if(temp==0){
+        
+        [cameraGridView setNumberOfColumns:2];
+        [cameraGridView setNumberOfRows:2];
+        [cameraGridView setAlpha:1];
+        [cameraGridView setTag:99];
+        [[self view] addSubview:cameraGridView];
+        temp=1;
+        
+    }
+    else
+    {
+        UIView* subview = [self.view viewWithTag:99]; //Use the same number
+        [subview removeFromSuperview];
+        temp=0;
+        // [[self view] removeFromSuperview];
+        
+    }
     
 }
 - (void)openSettings
@@ -630,20 +518,17 @@ NSString *grid=@"";
 }
 - (void)toggleFlashlight
 {
-    AVCaptureDevice *flashLight = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-    if ([flashLight isTorchAvailable] && [flashLight isTorchModeSupported:AVCaptureTorchModeOn])
-    {
-        BOOL success = [flashLight lockForConfiguration:nil];
-        if (success)
-        {
-            if ([flashLight isTorchActive]) {
-                [flashLight setTorchMode:AVCaptureTorchModeOff];
-            } else {
-                [flashLight setTorchMode:AVCaptureTorchModeOn];
-            }
-            [flashLight unlockForConfiguration];
-        }
+    
+    if(flash_temp==0){
+        
+        dataCam=@"Flash";
+        flash_temp=1;
     }
+    else{
+        dataCam=@"";
+        flash_temp=0;
+    }
+    
 }
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
@@ -705,19 +590,19 @@ NSString *grid=@"";
 - (IBAction)toggleMovieRecording:(id)sender
 {
     //	[[self recordButton] setEnabled:NO];
-       dispatch_async([self sessionQueue], ^{
+    dispatch_async([self sessionQueue], ^{
         
-           [self.myCounterLabel setHidden:NO];
-           self.myCounterLabel.text=@"Recording is Started";
-           int duration = 1; // duration in seconds
-           
-           dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-               [self.myCounterLabel setHidden:YES];
-           });
+        [self.myCounterLabel setHidden:NO];
+        self.myCounterLabel.text=@"Recording is Started";
+        int duration = 1; // duration in seconds
+        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            [self.myCounterLabel setHidden:YES];
+        });
         if (![[self movieFileOutput] isRecording])
         {
             
-
+            
             [self setLockInterfaceRotation:YES];
             
             if ([[UIDevice currentDevice] isMultitaskingSupported])
@@ -743,11 +628,12 @@ NSString *grid=@"";
     });
 }
 
-- (IBAction)changeCamera:(id)sender
+- (void)changeCamera
 {
-    [[self cameraButton] setEnabled:NO];
-    [[self recordButton] setEnabled:NO];
-    [[self stillButton] setEnabled:NO];
+    
+    //    [[self cameraButton] setEnabled:NO];
+    //    [[self recordButton] setEnabled:NO];
+    //    [[self stillButton] setEnabled:NO];
     
     dispatch_async([self sessionQueue], ^{
         AVCaptureDevice *currentVideoDevice = [[self videoDeviceInput] device];
@@ -760,12 +646,10 @@ NSString *grid=@"";
                 preferredPosition = AVCaptureDevicePositionBack;
                 break;
             case AVCaptureDevicePositionBack:
-                if([dataCam isEqualToString:@"FrontCamera"])
-                    preferredPosition = AVCaptureDevicePositionFront;
+                preferredPosition = AVCaptureDevicePositionFront;
                 break;
             case AVCaptureDevicePositionFront:
-                if([dataCam isEqualToString:@"BackCamera"])
-                    preferredPosition = AVCaptureDevicePositionBack;
+                preferredPosition = AVCaptureDevicePositionBack;
                 break;
         }
         
@@ -810,7 +694,7 @@ NSString *grid=@"";
         // Flash set to Auto for Still Capture
         if ([dataCam isEqual:@"Flash"]){
             [AVCamViewController setFlashMode:AVCaptureFlashModeOn forDevice:[[self videoDeviceInput] device]];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"DataFlash" object:dataCam];
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"DataFlash" object:dataCam];
         }
         else
             [AVCamViewController setFlashMode:AVCaptureFlashModeAuto forDevice:[[self videoDeviceInput] device]];
@@ -967,5 +851,115 @@ NSString *grid=@"";
 
 
 - (IBAction)imageGallery:(id)sender {
+}
+//Context Menu Options
+- (NSInteger) numberOfMenuItems
+{
+    return 8;
+}
+
+-(UIImage*) imageForItemAtIndex:(NSInteger)index
+{
+    NSString* imageName = nil;
+    switch (index) {
+        case 0:
+            imageName = @"Camera-50";
+            
+            break;
+        case 1:
+            imageName = @"Video-50";
+            break;
+        case 2:
+            imageName = @"Settings-50";
+            break;
+        case 3:
+            imageName = @"Flash On-50";
+            break;
+        case 4:
+            imageName = @"Prison-50";
+            break;
+        case 5:
+            imageName = @"Timer-50";
+            break;
+        case 6:
+            imageName = @"Surface-50";
+            break;
+        case 7:
+            imageName = @"Switch Camera-50";
+            break;
+            
+        default:
+            break;
+    }
+    return [UIImage imageNamed:imageName];
+}
+
+- (void) didSelectItemAtIndex:(NSInteger)selectedIndex forMenuAtPoint:(CGPoint)point
+{
+    // NSString* imageName = nil;
+    switch (selectedIndex) {
+        case 0:
+        {  self.previewView.transform = CGAffineTransformIdentity;
+            modeCam=@"Camera";
+            
+            self.modeLabel.text=@"Camera";
+            [self.myCounterLabel setHidden:NO];
+            self.myCounterLabel.text=@"Tap to take a snap";
+            int duration = 3; // duration in seconds
+            
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [self.myCounterLabel setHidden:YES];
+            });
+            [self stopTimer];
+        }
+            break;
+        case 1:{
+            self.previewView.transform = CGAffineTransformIdentity;
+            modeCam=@"Video";
+            self.modeLabel.text=@"Video";
+            [self.myCounterLabel setHidden:NO];
+            self.myCounterLabel.text=@"Tap to start/stop movie Recording";
+            int duration = 3; // duration in seconds
+            
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, duration * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [self.myCounterLabel setHidden:YES];
+            });
+            [self stopTimer];
+        }
+            break;
+        case 2:
+            [self openSettings];
+            [self stopTimer];
+            break;
+        case 3:
+            dataCam=@"Flash";
+            [self toggleFlashlight];
+            [self stopTimer];
+            break;
+        case 4:
+            
+            [self DrawGridLines];
+            [self stopTimer];
+            
+            break;
+        case 5:
+            [self timer];
+            [self stopTimer];
+            break;
+        case 6:{
+            modeCam=@"Camera";
+            CGAffineTransform translate = CGAffineTransformMakeTranslation(0.0, self.view.frame.size.height/2);            self.previewView.transform =translate;
+            [self stopTimer];
+            
+            break;}
+        case 7:
+            [self changeCamera];
+            [self stopTimer];
+            break;
+            
+        default:
+            break;
+    }
+    
 }
 @end
